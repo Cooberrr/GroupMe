@@ -1,13 +1,15 @@
-namespace GroupMe.domain;
+namespace GroupMe;
 
+using GroupMe.domain;
 using GroupMe.services;
-using GroupMe.factories;
 
 public class ConsoleUI
 {
     private CalendarService _calendar;
     private NoteService _noteService;
     private MeetingResourceService _fileService;
+    private Group? _currentGroup;
+    private GroupMember? _currentUser;
     private Group _group;
     private GroupLeader _leader;
     public ConsoleUI()
@@ -15,6 +17,9 @@ public class ConsoleUI
         _calendar = new CalendarService();
         _noteService = new NoteService();
         _fileService = new MeetingResourceService();
+        _currentGroup = new Group(1, "Demo Group");
+        _currentUser = new GroupMember(1, "Cooper", "cooper@email.com", Role.Member);
+        _currentUser.JoinGroup(_currentGroup);
     }
 
     public void ShowMenu()
@@ -24,6 +29,9 @@ public class ConsoleUI
         while (running)
         {
             Console.WriteLine("\n=== GroupMe Main Menu ===");
+            Console.WriteLine($"Current User: {(_currentUser != null ? _currentUser.Name : "None")}");
+            Console.WriteLine($"Current Group: {(_currentGroup != null ? _currentGroup.GroupName : "None")}");
+            Console.WriteLine();
             Console.WriteLine("1. Setup Group");
             Console.WriteLine("2. Schedule a Meeting");
             Console.WriteLine("3. View Meetings");
@@ -31,6 +39,8 @@ public class ConsoleUI
             Console.WriteLine("5. View Notes");
             Console.WriteLine("6. Upload a File");
             Console.WriteLine("7. View Files");
+            Console.WriteLine("8. Join Group");
+            Console.WriteLine("9. Leave Group");
             Console.WriteLine("0. Exit");
             Console.Write("Enter choice: ");
 
@@ -58,6 +68,12 @@ public class ConsoleUI
                     break;
                 case 7:
                     ViewFiles();
+                    break;
+                case 8:
+                    JoinGroup();
+                    break;
+                case 9:
+                    LeaveGroup();
                     break;
                 case 0:
                     running = false;
@@ -104,50 +120,99 @@ public class ConsoleUI
 
     private void ScheduleMeeting()
     {
-        if (_group == null)
+        if (_currentGroup == null)
         {
-            DisplayMessage("Please set up a group first (Option 1).");
+            Console.WriteLine("You need to setup or join a group before scheduling a meeting.");
+        return;
+        }
+
+        Console.Write("Enter meeting title: ");
+        string title = Console.ReadLine();
+
+        Console.Write("Enter meeting date and time (example: 5/6/2026 3:30 PM): ");
+        string dateInput = Console.ReadLine();
+
+        DateTime meetingDate;
+
+        if (!DateTime.TryParse(dateInput, out meetingDate))
+        {
+            Console.WriteLine("Invalid date/time. Meeting was not scheduled.");
             return;
         }
-        Console.Write("Enter meeting title: ");
-        string title = Console.ReadLine() ?? "Meeting";
 
-        Console.WriteLine("Select meeting type:");
-        Console.WriteLine("1. Online  2. InPerson  3. Hybrid  4. Call");
-        int typeChoice = ReadChoice();
+        Console.WriteLine("Choose meeting type:");
+        Console.WriteLine("1. Online");
+        Console.WriteLine("2. In Person");
+        Console.WriteLine("3. Hybrid");
+        Console.WriteLine("4. Call");
 
-        MeetingType type = typeChoice switch
+        Console.Write("Enter choice: ");
+        string typeInput = Console.ReadLine();
+
+        MeetingType type;
+
+        switch (typeInput)
         {
-            1 => MeetingType.Online,
-            2 => MeetingType.InPerson,
-            3 => MeetingType.Hybrid,
-            4 => MeetingType.Call,
-            _ => MeetingType.Online
-        };
+            case "1":
+                type = MeetingType.Online;
+                break;
+            case "2":
+                type = MeetingType.InPerson;
+                break;
+            case "3":
+                type = MeetingType.Hybrid;
+                break;
+            case "4":
+                type = MeetingType.Call;
+                break;
+            default:
+                Console.WriteLine("Invalid meeting type. Meeting was not scheduled.");
+                return;
+        }
 
-        MeetingDetails details = new MeetingDetails(title, DateTime.Now, type);
-        string? link = null;
-        string? location = null;
-        int conferenceNum = 0;
+        MeetingDetails details = new MeetingDetails(title, meetingDate, type);
 
-        if (type == MeetingType.Online || type == MeetingType.Hybrid)
+        if (type == MeetingType.Online)
         {
             Console.Write("Enter meeting link: ");
-            link = Console.ReadLine();
+            string link = Console.ReadLine();
+
+            _calendar.CreateAndAddMeeting(type, details, link: link);
         }
-        if (type == MeetingType.InPerson || type == MeetingType.Hybrid)
+        else if (type == MeetingType.InPerson)
         {
-            Console.Write("Enter location: ");
-            location = Console.ReadLine();
+            Console.Write("Enter meeting location: ");
+            string location = Console.ReadLine();
+
+            _calendar.CreateAndAddMeeting(type, details, location: location);
         }
-        if (type == MeetingType.Call)
+        else if (type == MeetingType.Hybrid)
+        {
+            Console.Write("Enter meeting link: ");
+            string link = Console.ReadLine();
+
+            Console.Write("Enter meeting location: ");
+            string location = Console.ReadLine();
+
+            _calendar.CreateAndAddMeeting(type, details, link: link, location: location);
+        }
+        else if (type == MeetingType.Call)
         {
             Console.Write("Enter conference number: ");
-            int.TryParse(Console.ReadLine(), out conferenceNum);
+            string numberInput = Console.ReadLine();
+
+            int conferenceNum;
+
+            if (!int.TryParse(numberInput, out conferenceNum))
+            {
+                Console.WriteLine("Invalid conference number. Meeting was not scheduled.");
+                return;
+            }
+
+            _calendar.CreateAndAddMeeting(type, details, conferenceNum: conferenceNum);
         }
 
-        _calendar.CreateAndAddMeeting(type, details, link, location, conferenceNum);
-        DisplayMessage($"Meeting '{title}' scheduled.");
+        Console.WriteLine($"Meeting '{title}' scheduled for {meetingDate}.");
     }
     private void ViewMeetings()
     {
@@ -155,15 +220,15 @@ public class ConsoleUI
 
         if (meetings.Count == 0)
         {
-            DisplayMessage("No meetings scheduled.");
+            Console.WriteLine("No meetings scheduled.");
             return;
         }
 
-        Console.WriteLine("\n=== Scheduled Meetings ===");
-        foreach (Meeting m in meetings)
+        foreach (Meeting meeting in meetings)
         {
-            MeetingDetails d = m.GetDetails();
-            Console.WriteLine($"- {d.Title} | {d.Type} | {d.Date:MM/dd/yyyy}");
+            MeetingDetails details = meeting.GetDetails();
+
+            Console.WriteLine($"{details.Title} - {details.Date} - {details.Type}");
         }
     }
 
@@ -233,5 +298,48 @@ public class ConsoleUI
         {
             Console.WriteLine($"-{f}");
         }
+    }
+    private void JoinGroup()
+    {
+        Console.Write("Enter group name to join: ");
+        string groupName = Console.ReadLine();
+
+        if (string.IsNullOrWhiteSpace(groupName))
+        {
+            Console.WriteLine("Group name cannot be empty.");
+            return;
+        }
+
+        if (_currentUser == null)
+        {
+            Console.Write("Enter your name: ");
+            string name = Console.ReadLine();
+
+            Console.Write("Enter your email: ");
+            string email = Console.ReadLine();
+
+            _currentUser = new GroupMember(1, name, email, Role.Member);
+        }
+
+        _currentGroup = new Group(1, groupName);
+        _currentUser.JoinGroup(_currentGroup);
+
+        Console.WriteLine($"{_currentUser.Name} joined {_currentGroup.GroupName}.");
+    }
+
+    private void LeaveGroup()
+    {
+        if (_currentGroup == null || _currentUser == null)
+        {
+            Console.WriteLine("No current group or user selected.");
+            return;
+        }
+
+        string groupName = _currentGroup.GroupName;
+
+        _currentGroup.RemoveMember(_currentUser);
+        _currentGroup = null;
+
+        Console.WriteLine($"{_currentUser.Name} left {groupName}.");
     }
 }
